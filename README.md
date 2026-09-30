@@ -2,6 +2,14 @@
 
 A native Android learning and quiz app built with Java and SQLite. Explore 48 countries across six continents, test your flag knowledge, and keep a personal travel journal of your results.
 
+## Download for Android
+
+**[Download Fun with Flags APK](https://github.com/shihabbk18/fun-with-flags/releases/download/v1.0.0/Fun-with-Flags.apk)**
+
+Open the link on an Android 8.0+ phone, download the APK, and tap it to install. No GitHub login is required. This is a debug-signed testing build.
+
+[View release details](https://github.com/shihabbk18/fun-with-flags/releases/tag/v1.0.0).
+
 ## Use on a computer
 Open https://shihabbk18.github.io/fun-with-flags/ in your browser. No login, APK, or emulator is needed. The public app source is in browser/. Scores are saved locally using IndexedDB in each browser, with downloadable reports. Android history is separate.
 
@@ -36,5 +44,3 @@ All data stays on the device. Sharing a report is optional and opens Android's c
 ## Toolchain
 Android Gradle Plugin 8.9.2, Gradle 8.11.1, Java 17, compile/target SDK 35, minimum SDK 26.
 Compatibility: https://developer.android.com/build/releases/past-releases/agp-8-9-0-release-notes
-
-
