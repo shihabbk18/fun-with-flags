@@ -2,6 +2,9 @@
 
 A native Android learning and quiz app built with Java and SQLite. Explore 48 countries across six continents, test your flag knowledge, and keep a personal travel journal of your results.
 
+## Use on a computer
+Open https://fun-with-flags-shihab.unisat2.chatgpt.site in your browser. Sign in with the owner’s ChatGPT account if prompted. No APK or emulator is needed. Browser source is in the web folder; its saved results are separate from Android's on-device history.
+
 ## Features
 - Offline flag library with country names, capitals, continent filters, and search.
 - World or continent quizzes with 5, 10, or 20 questions, capped to the available countries.
@@ -33,3 +36,4 @@ All data stays on the device. Sharing a report is optional and opens Android's c
 ## Toolchain
 Android Gradle Plugin 8.9.2, Gradle 8.11.1, Java 17, compile/target SDK 35, minimum SDK 26.
 Compatibility: https://developer.android.com/build/releases/past-releases/agp-8-9-0-release-notes
+
