@@ -35,7 +35,7 @@ public class AppFlowTest {
                 if(i==0) { controller.recreate(); a=controller.get(); }
                 tap(a,i==9?"See my results  →":"Next flag  →");
             }
-            assertNotNull(find(a.getWindow().getDecorView(),"Saved to your history"));
+            assertNotNull(find(a.getWindow().getDecorView(),"Saved on this device"));
             tap(a,"History"); assertNotNull(find(a.getWindow().getDecorView(),"View answer report"));
             try(FlagDatabase db=new FlagDatabase(a)) { assertEquals(1,db.stats()[0]); }
         }

@@ -1,6 +1,6 @@
 # Fun with Flags ⚑
 
-Explore 250 countries, territories and other places in five geography games. Includes all 195 UN member/observer countries, with a countries-only filter.
+Developed by **Shihab**. Explore 250 countries, territories and other places in five geography games. Includes all 195 UN member/observer countries, with a countries-only filter.
 
 ## Play in your browser
 
@@ -32,9 +32,13 @@ Search the world atlas by country name, capital, or country code. Browser search
 
 Android keeps its catalog and result history in SQLite. Upgrading the catalog from the original 48-entry app preserves existing saved results. In-progress games survive screen recreation and rotation. The Android and browser histories are separate.
 
+## Accounts and cloud saving
+
+Email sign-in, verification, sign-out, stay-signed-in sessions, recovery, and account-isolated cloud sync are implemented. **The Firebase project still needs to be connected before accounts can be activated.** Guest play and local scores remain available. See [CLOUD-SETUP.md](CLOUD-SETUP.md) for free-plan limits, setup, tests, and privacy details.
+
 ## Privacy and APK integrity
 
-The Android app runs offline and requests **no permissions**: no internet, camera, microphone, contacts, location, or shared-storage access. It has no ads or analytics libraries. Sharing opens Android's chooser only when you tap Share. Browser scores stay on your device.
+The published **2.0 APK** runs offline and requests **no permissions**: no internet, camera, microphone, contacts, location, or shared-storage access. It has no ads or analytics libraries. Sharing opens Android's chooser only when you tap Share. Guest browser scores stay on your device. The prepared account build adds network access for authentication and opt-in cloud sync, with no sensitive device permissions.
 
 Release downloads include a SHA-256 checksum. It verifies that a download matches the published file; it is not a guarantee of absolute safety. Debug builds are for testing and have not undergone Play Store review. Keep Android's security protections enabled.
 

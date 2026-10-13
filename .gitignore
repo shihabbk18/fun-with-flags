@@ -5,3 +5,9 @@ local.properties
 *.iml
 *.jks
 *.keystore
+node_modules/
+*.tsbuildinfo
+cloud/firebase-debug.log
+cloud/firestore-debug.log
+cloud/ui-debug.log
+cloud/.firebase/

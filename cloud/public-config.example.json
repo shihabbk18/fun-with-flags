@@ -1,0 +1,1 @@
+{"web":{"apiKey":"YOUR_PUBLIC_WEB_API_KEY","authDomain":"YOUR_PROJECT.firebaseapp.com","projectId":"YOUR_PROJECT","appId":"1:SENDER:web:WEB_APP_ID","messagingSenderId":"SENDER"},"android":{"apiKey":"YOUR_PUBLIC_ANDROID_API_KEY","projectId":"YOUR_PROJECT","appId":"1:SENDER:android:ANDROID_APP_ID","messagingSenderId":"SENDER"}}

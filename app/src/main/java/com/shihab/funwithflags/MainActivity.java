@@ -15,6 +15,8 @@ import java.util.*;
 public class MainActivity extends Activity {
     private static final int INK=0xFF163D32, GREEN=0xFF236B54, CREAM=0xFFF7F7EF, MUTED=0xFF68776E, GOLD=0xFFF5C75E;
     private FlagDatabase db;
+    private CloudAccount account;
+    private String playOwner="guest";
     private LinearLayout root, body, navigation;
     private Quiz quiz;
     private MemoryGame memory;
@@ -29,7 +31,7 @@ public class MainActivity extends Activity {
         }
         timerHandler.postDelayed(this,250);
     }};
-    @Override protected void onResume(){super.onResume();timerHandler.post(timerTick);}
+    @Override protected void onResume(){super.onResume();timerHandler.post(timerTick);if(account!=null)account.sync();}
     @Override protected void onPause(){timerHandler.removeCallbacks(timerTick);super.onPause();}
     private String screen="home", region="World";
     private int questionCount=10;
@@ -38,10 +40,11 @@ public class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         db=new FlagDatabase(this);
+        account=new CloudAccount(this,db,()->{if(screen.equals("home")||screen.equals("account")||screen.equals("history"))render();});
         if(state!=null) {
             quiz=(Quiz)state.getSerializable("quiz");
             screen=state.getString("screen","home"); region=state.getString("region","World");
-            questionCount=state.getInt("count",10);
+            questionCount=state.getInt("count",10);playOwner=state.getString("playOwner","guest");
             mode=state.getString("mode","flag");onlyCountries=state.getBoolean("onlyCountries",false);
             memory=(MemoryGame)state.getSerializable("memory");
         }
@@ -50,9 +53,9 @@ public class MainActivity extends Activity {
     @Override protected void onSaveInstanceState(Bundle out) {
         super.onSaveInstanceState(out);
         out.putSerializable("quiz",quiz); out.putString("screen",screen);
-        out.putString("region",region); out.putInt("count",questionCount);out.putString("mode",mode);out.putBoolean("onlyCountries",onlyCountries);out.putSerializable("memory",memory);
+        out.putString("region",region); out.putInt("count",questionCount);out.putString("mode",mode);out.putBoolean("onlyCountries",onlyCountries);out.putSerializable("memory",memory);out.putString("playOwner",playOwner);
     }
-    @Override protected void onDestroy() { db.close(); super.onDestroy(); }
+    @Override protected void onDestroy() { if(account!=null)account.close();db.close(); super.onDestroy(); }
     private int dp(float n) { return (int)(n*getResources().getDisplayMetrics().density+0.5f); }
     private GradientDrawable background(int color,int radius) {
         GradientDrawable d=new GradientDrawable(); d.setColor(color); d.setCornerRadius(dp(radius)); return d;
@@ -94,6 +97,7 @@ public class MainActivity extends Activity {
             case "quiz": if(quiz!=null){if(quiz.complete()){result();button(body,"Retry saving result",GREEN,Color.WHITE,this::saveQuiz);}else question();} else home(); break;
             case "result": if(quiz!=null && quiz.complete()) result(); else home(); break;
             case "history": history(); break;
+            case "account": accountScreen(); break;
             case "memory": memoryScreen(); break;
             default: home();
         }
@@ -104,7 +108,7 @@ public class MainActivity extends Activity {
     }
     private void nav() {
         navigation=new LinearLayout(this); navigation.setPadding(dp(12),dp(8),dp(12),dp(10)); navigation.setBackgroundColor(Color.WHITE);
-        String[] labels={"Home","Learn","Quiz","History"}, targets={"home","learn","setup","history"};
+        String[] labels={"Home","Learn","Quiz","History","Account"}, targets={"home","learn","setup","history","account"};
         for(int i=0;i<labels.length;i++) {
             final String target=targets[i];
             TextView item=text(labels[i],14,screen.equals(target)?GREEN:MUTED,screen.equals(target));
@@ -131,7 +135,8 @@ public class MainActivity extends Activity {
         explore.addView(text("250 places. Five ways to play.",22,INK,true));
         explore.addView(text("Explore all 195 UN member/observer countries, plus territories and other places. Play flags, capitals, continents, sprint, or matching.",15,MUTED,false));
         button(explore,"Explore the flag library",Color.WHITE,INK,()->go("learn"));
-        body.addView(text("OFFLINE BY DESIGN  ·  NO ADS  ·  JUST CURIOSITY",10,MUTED,true));
+        body.addView(text("Developed by Shihab",14,GREEN,true));
+        body.addView(text("NO ADS  ·  JUST CURIOSITY",10,MUTED,true));
     }
     private Spinner regionPicker(LinearLayout parent,Runnable changed) {
         Spinner spinner=new Spinner(this);
@@ -205,6 +210,7 @@ public class MainActivity extends Activity {
         gap(c,12); c.addView(text("10 points per correct answer or matched pair. Sprint lasts 60 seconds; matching uses up to 6 pairs. Length applies to other quizzes. The 195-country set is UN members plus Palestine and Vatican City. Extended entries follow the dataset.",15,MUTED,false));
         button(body,"Start my quiz  →",GREEN,Color.WHITE,()->{
             try {
+                playOwner=account.owner();
                 List<Country> pool=db.countries(region,"",onlyCountries);
                 if(mode.equals("memory")){memory=new MemoryGame(pool,region,new Random());go("memory");}
                 else {quiz=new Quiz(pool,db.countries("World",""),questionCount,region,mode,new Random());go("quiz");}
@@ -247,7 +253,7 @@ public class MainActivity extends Activity {
             button(body,quiz.index+1==quiz.questions.size()?"See my results  →":"Next flag  →",GREEN,Color.WHITE,()->{
                 if(quiz.next()) render();
                 else {
-                    try { db.save(quiz); go("result"); }
+                    try { db.save(quiz,playOwner);account.sync(); go("result"); }
                     catch(android.database.SQLException error) {
                         new AlertDialog.Builder(this).setTitle("Couldn’t save your result").setMessage("Your answers are still here. Free some device storage and tap See my results to try again.").setPositiveButton("OK",null).show();
                     }
@@ -262,7 +268,7 @@ public class MainActivity extends Activity {
         score.addView(text("YOUR EXPEDITION REPORT",12,0xFFCAE5CC,true));
         score.addView(text(quiz.points()+" points",46,Color.WHITE,true));
         score.addView(text(quiz.correct()+" / "+quiz.total()+" correct   ·   "+quiz.accuracy()+"% accuracy",18,Color.WHITE,true));
-        score.addView(text(screen.equals("result")?"Saved to your history":"Result not yet saved",14,0xFFCAE5CC,false));
+        score.addView(text(screen.equals("result")?"Saved on this device":"Result not yet saved",14,0xFFCAE5CC,false));
         button(body,"Play again",GREEN,Color.WHITE,()->go("setup"));
         button(body,"Share result report",Color.WHITE,INK,()->share(quiz.report()));
         gap(body,20); body.addView(text("A look back",24,INK,true));
@@ -293,7 +299,7 @@ public class MainActivity extends Activity {
     }
 
     private void saveQuiz(){
-        try{db.save(quiz);go("result");}
+        try{db.save(quiz,playOwner);account.sync();go("result");}
         catch(android.database.SQLException error){new AlertDialog.Builder(this).setTitle("Could not save").setMessage("Your result is still here. Retry after freeing some storage.").setPositiveButton("Retry",(d,w)->saveQuiz()).setNegativeButton("Keep result",(d,w)->{screen="quiz";render();button(body,"Retry saving result",GREEN,Color.WHITE,this::saveQuiz);}).show();}
     }
     private void memoryScreen(){
@@ -302,7 +308,7 @@ public class MainActivity extends Activity {
             heading("A perfect match!","Flag Match · "+memory.region);
             body.addView(text(memory.matched.size()*10+" points",44,GREEN,true));
             body.addView(text(memory.matched.size()+" pairs in "+memory.moves+" turns",22,INK,true));
-            try{db.save(memory);body.addView(text("Saved to your history",16,MUTED,false));}
+            try{db.save(memory,playOwner);account.sync();body.addView(text("Saved on this device",16,MUTED,false));}
             catch(android.database.SQLException e){button(body,"Retry saving result",GREEN,Color.WHITE,this::render);}
             button(body,"Share result report",GREEN,Color.WHITE,()->share(memory.report()));
             button(body,"Choose another game",Color.WHITE,INK,()->{memory=null;go("setup");});
@@ -324,6 +330,41 @@ public class MainActivity extends Activity {
         button(body,"Leave game",CREAM,MUTED,this::leaveMemory);
     }
     private void leaveMemory(){new AlertDialog.Builder(this).setTitle("Leave this game?").setMessage("Unfinished progress will not be saved.").setNegativeButton("Keep playing",null).setPositiveButton("Leave",(d,w)->{memory=null;go("home");}).show();}
+
+
+    private void accountScreen(){
+        heading("Your account","Private scores across your devices.");
+        body.addView(text(account.status,16,GREEN,true));
+        if(!account.configured()){
+            body.addView(text("Cloud accounts are awaiting activation by the game owner. Guest games and local saved results work now.",16,MUTED,false));
+            button(body,"Continue as guest",GREEN,Color.WHITE,()->go("home"));return;
+        }
+        com.google.firebase.auth.FirebaseUser user=account.user();
+        if(user!=null){
+            body.addView(text(user.getEmail(),20,INK,true));
+            if(user.isEmailVerified()){
+                button(body,"Sync now",GREEN,Color.WHITE,account::sync);
+                button(body,"Import guest games",Color.WHITE,INK,()->new AlertDialog.Builder(this).setTitle("Import your guest games?").setMessage("Only continue if the guest games on this device belong to you. They will move to this account.").setNegativeButton("Cancel",null).setPositiveButton("Import",(d,w)->{db.importGuests(user.getUid());account.sync();render();}).show());
+            }else{
+                body.addView(text("Verify your email before cloud saving. Check your inbox, then return here.",16,MUTED,false));
+                button(body,"I verified my email",GREEN,Color.WHITE,()->account.refresh(error->cloudMessage(error,"Email checked.")));
+                button(body,"Resend verification",Color.WHITE,INK,()->account.verify(error->cloudMessage(error,"Verification email requested.")));
+            }
+            button(body,"Sign out",CREAM,INK,()->{account.logout();go("home");});
+            body.addView(text("Synced results return after sign-in. Unsent games stay under this account on the device until they sync.",14,MUTED,false));return;
+        }
+        EditText email=new EditText(this);email.setHint("Email");email.setSingleLine(true);email.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS);body.addView(email);
+        EditText password=new EditText(this);password.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(128)});password.setHint("Password");password.setSingleLine(true);password.setInputType(android.text.InputType.TYPE_CLASS_TEXT|android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);body.addView(password);
+        CheckBox remember=new CheckBox(this);remember.setText("Keep me signed in on this device");remember.setChecked(true);body.addView(remember);
+        body.addView(text("Uncheck on shared devices: sign-out occurs when the app restarts. New passwords require at least 12 characters.",14,MUTED,false));
+        final boolean[] busy={false};
+        java.util.function.Consumer<String> done=error->{busy[0]=false;password.setText("");cloudMessage(error,"Done. Check your account or inbox.");};
+        button(body,"Sign in",GREEN,Color.WHITE,()->{if(busy[0]||!validEmail(email))return;busy[0]=true;account.login(email.getText().toString().trim(),password.getText().toString(),remember.isChecked(),done);});
+        button(body,"Create account",Color.WHITE,INK,()->{if(busy[0]||!validEmail(email))return;if(password.length()<12){password.setError("Use at least 12 characters");return;}busy[0]=true;account.register(email.getText().toString().trim(),password.getText().toString(),remember.isChecked(),done);});
+        button(body,"Forgot password?",CREAM,INK,()->{if(busy[0]||!validEmail(email))return;busy[0]=true;account.reset(email.getText().toString().trim(),error->{busy[0]=false;cloudMessage(error,"If an account can receive a reset email, instructions will arrive shortly.");});});
+    }
+    private boolean validEmail(EditText email){if(!android.util.Patterns.EMAIL_ADDRESS.matcher(email.getText().toString().trim()).matches()){email.setError("Enter a valid email");return false;}return true;}
+    private void cloudMessage(String error,String success){new AlertDialog.Builder(this).setTitle(error==null?"Account":"Please try again").setMessage(error==null?success:error).setPositiveButton("OK",(d,w)->render()).show();}
 
     private void share(String report) {
         Intent intent=new Intent(Intent.ACTION_SEND); intent.setType("text/plain"); intent.putExtra(Intent.EXTRA_TEXT,report);

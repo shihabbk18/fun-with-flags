@@ -3,18 +3,23 @@ const app=document.querySelector("#app"),modal=document.querySelector("#modal");
 let tab="play",region="World",scope="all",mode="flag",count=10,game=null,result=null,history=[],db=null,storageError="",saved=false,saving=false,timer=null,lastFeedback="";
 const esc=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const flag=(code,label)=>'<img loading="lazy" src="./flags/'+code.toLowerCase()+'.svg" alt="'+esc(label)+'">';
+let activeOwner=window.FlagAccount?.owner()||"guest";
 const title=r=>modes[r.mode||"flag"]?.title||"Flag Finder";
 function picker(label,id,options,value){return '<div class="field"><label for="'+id+'">'+label+'</label><select id="'+id+'">'+options.map(v=>{const key=typeof v==="object"?v.id:v,label=typeof v==="object"?v.label:v;return '<option '+(String(key)===String(value)?'selected':'')+' value="'+esc(key)+'">'+esc(label)+(id==="count"?' questions':'')+'</option>'}).join('')+'</select></div>'}
 function notice(){document.querySelector("#storage-notice").innerHTML=storageError?'<div class="notice">'+esc(storageError)+'</div>':""}
-function openDatabase(){return new Promise((resolve,reject)=>{const r=indexedDB.open("fun-with-flags",1);r.onupgradeneeded=()=>r.result.createObjectStore("results",{keyPath:"id"});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(Error("Storage blocked"))})}
-async function loadHistory(){try{db=db||await openDatabase();history=await new Promise((resolve,reject)=>{const t=db.transaction("results","readonly"),r=t.objectStore("results").getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});history.sort((a,b)=>b.created-a.created);storageError=""}catch{storageError="Saved history is unavailable in this browser. You can still play and download a report."}notice()}
+async function loadHistory(){
+ const owner=window.FlagAccount?.owner()||"guest";
+ try{const rows=await FlagStore.list(owner);if(owner!==(window.FlagAccount?.owner()||"guest"))return;history=rows;storageError=""}
+ catch{storageError="Saved history is unavailable in this browser. You can still play and download a report."}notice();
+}
 async function saveResult(){
- if(!result||saving)return;saving=true;render();
- try{db=db||await openDatabase();await new Promise((resolve,reject)=>{const t=db.transaction("results","readwrite");t.objectStore("results").put(result);t.oncomplete=()=>resolve();t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error)});saved=true;await loadHistory()}
- catch{storageError="Could not save your result. Retry saving or download your report.";notice()}
+ if(!result||saving)return;const row={...result,reportText:report(result)},owner=result.owner||activeOwner;
+ saving=true;render();
+ try{await FlagStore.save(row,owner);if(result?.id===row.id)saved=true;await loadHistory();void window.FlagAccount?.sync()}
+ catch{storageError="Could not save your result on this device. Retry or download a report.";notice()}
  finally{saving=false;render()}
 }
-function start(){try{game=createGame(mode,region,scope,count);result=null;saved=false;lastFeedback="";tab="play";if(timer)clearInterval(timer);if(mode==="sprint")timer=setInterval(tick,250);render()}catch(e){showModal("Choose another route",'<p class="muted">'+esc(e.message)+'</p>','<button class="primary" data-action="close">OK</button>')}}
+function start(){try{game=createGame(mode,region,scope,count);game.owner=activeOwner;result=null;saved=false;lastFeedback="";tab="play";if(timer)clearInterval(timer);if(mode==="sprint")timer=setInterval(tick,250);render()}catch(e){showModal("Choose another route",'<p class="muted">'+esc(e.message)+'</p>','<button class="primary" data-action="close">OK</button>')}}
 function tick(){if(!game||game.mode!=="sprint")return;if(Date.now()>=game.deadline){finish();return}const clock=document.querySelector("#clock");if(clock)clock.textContent=Math.max(0,Math.ceil((game.deadline-Date.now())/1000))+"s"}
 function answer(value){
  if(!game)return;
@@ -23,14 +28,15 @@ function answer(value){
  if(game.mode==="sprint"){const a=game.answers.at(-1);lastFeedback=(a.correct?"✓ Correct: ":"✕ It was ")+byCode(a.code).name;next()}else render();
 }
 function next(){if(!game||game.answers.length<=game.index)return;if(game.index+1<game.questions.length){game.index++;render()}else finish()}
-function finish(){if(!game)return;if(modal.open)modal.close();if(timer)clearInterval(timer);timer=null;result=finishGame(game);game=null;void saveResult()}
+function finish(){if(!game)return;if(modal.open)modal.close();if(timer)clearInterval(timer);timer=null;result={...finishGame(game),owner:game.owner};game=null;void saveResult()}
 function playCard(index){if(!game||!revealCard(game,index))return;if(game.matched.length===game.questions.length)finish();else render()}
-function report(r){return "Fun with Flags — "+title(r)+"\n"+r.region+" · "+resultPoints(r)+" points · "+r.correct+"/"+r.total+" correct"+(r.moves?" · "+r.moves+" turns":"")+"\n\n"+r.answers.map((a,i)=>(i+1)+". "+byCode(a.code).name+" — answer: "+answerLabel(r,a)+"; correct: "+answerExpected(r,a)+(answerCorrect(a)?" ✓":" ✕")).join("\n")}
+function report(r){if(r.reportText&&(!r.answers||!r.answers.length))return r.reportText;return "Fun with Flags — "+title(r)+"\n"+r.region+" · "+resultPoints(r)+" points · "+r.correct+"/"+r.total+" correct"+(r.moves?" · "+r.moves+" turns":"")+"\n\n"+r.answers.map((a,i)=>(i+1)+". "+byCode(a.code).name+" — answer: "+answerLabel(r,a)+"; correct: "+answerExpected(r,a)+(answerCorrect(a)?" ✓":" ✕")).join("\n")}
 function download(r){const url=URL.createObjectURL(new Blob([report(r)],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="fun-with-flags-report.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-function review(r){return '<div class="review">'+r.answers.map((a,i)=>'<div class="reviewrow">'+flag(a.code,byCode(a.code).name+' flag')+'<div><h3>'+(i+1)+'. '+esc(byCode(a.code).name)+'</h3><p class="muted">'+esc(answerCorrect(a)?answerExpected(r,a):'You chose '+answerLabel(r,a)+' · Correct: '+answerExpected(r,a))+'</p></div><span class="right" aria-label="'+(answerCorrect(a)?'Correct':'Incorrect')+'">'+(answerCorrect(a)?'✓':'✕')+'</span></div>').join('')+'</div>'}
+function review(r){if(r.reportText&&(!r.answers||!r.answers.length))return '<pre class="legacy-report">'+esc(r.reportText)+'</pre>';return '<div class="review">'+r.answers.map((a,i)=>'<div class="reviewrow">'+flag(a.code,byCode(a.code).name+' flag')+'<div><h3>'+(i+1)+'. '+esc(byCode(a.code).name)+'</h3><p class="muted">'+esc(answerCorrect(a)?answerExpected(r,a):'You chose '+answerLabel(r,a)+' · Correct: '+answerExpected(r,a))+'</p></div><span class="right" aria-label="'+(answerCorrect(a)?'Correct':'Incorrect')+'">'+(answerCorrect(a)?'✓':'✕')+'</span></div>').join('')+'</div>'}
 function showModal(name,content,actions){modal.innerHTML='<h2 id="modal-title">'+name+'</h2>'+content+'<div class="actions">'+actions+'</div>';modal.showModal()}
 function resetGame(){if(timer)clearInterval(timer);timer=null;game=null;result=null;modal.close();render()}
 function render(){
+ window.FlagAccount?.setBusy(!!game||saving);
  document.querySelectorAll("[data-tab]").forEach(b=>{b.classList.toggle("active",b.dataset.tab===tab);b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false");b.disabled=!!game&&b.dataset.tab!=="play"});
  if(tab==="learn"){renderLibrary();return}if(tab==="history"){renderHistory();return}
  if(game){game.mode==="memory"?renderMemory():renderQuestion();return}if(result){renderResult();return}
@@ -53,7 +59,7 @@ function renderMemory(){
 }
 function renderResult(){
  const accuracy=result.total?Math.round(100*result.correct/result.total):0;
- app.innerHTML='<section class="quiz"><p class="eyebrow">'+title(result)+' report</p><h1>'+(result.mode==="memory"?'A perfect match.':accuracy>=80?'World-class curiosity!':'Another journey complete.')+'</h1><div class="passport" style="min-height:230px;margin-top:24px"><div class="resultscore">'+resultPoints(result)+' points</div><h2>'+result.correct+' / '+result.total+' '+(result.mode==="memory"?'pairs · '+result.moves+' turns':'correct · '+accuracy+'% accuracy')+'</h2><p class="muted">'+esc(result.region)+' · '+result.seconds+' seconds · '+(saving?'Saving…':saved?'Saved in this browser':'Not saved yet')+'</p></div>'+
+ app.innerHTML='<section class="quiz"><p class="eyebrow">'+title(result)+' report</p><h1>'+(result.mode==="memory"?'A perfect match.':accuracy>=80?'World-class curiosity!':'Another journey complete.')+'</h1><div class="passport" style="min-height:230px;margin-top:24px"><div class="resultscore">'+resultPoints(result)+' points</div><h2>'+result.correct+' / '+result.total+' '+(result.mode==="memory"?'pairs · '+result.moves+' turns':'correct · '+accuracy+'% accuracy')+'</h2><p class="muted">'+esc(result.region)+' · '+result.seconds+' seconds · '+(saving?'Saving…':saved?'Saved on this device':'Not saved yet')+'</p></div>'+
  (!result.total?'<p class="note">No answers this time. Try again when you’re ready.</p>':'')+
  '<div class="actions"><button class="primary" data-action="again" '+(saving?'disabled':'')+'>Choose another game</button><button class="secondary" data-action="download">Download report</button>'+(!saved?'<button class="secondary" data-action="retry" '+(saving?'disabled':'')+'>Retry save</button>':'')+'</div><h2 style="margin-top:32px">A look back</h2>'+review(result)+'</section>';
 }
@@ -68,7 +74,7 @@ function updateLibrary(){
  document.querySelector("#country-list").innerHTML=list.length?list.map(c=>'<article class="countrycard">'+flag(c.code,c.name+' flag')+'<h3>'+esc(c.name)+'</h3><p>'+esc(c.capital)+'</p><p>'+c.continent+' · '+(c.standard?'Country':'Territory / other entry')+'</p></article>').join(''):'<p class="muted">No entries found. Try another search or region.</p>';
 }
 function renderHistory(){
- app.innerHTML='<div class="intro"><div><p class="eyebrow">Your travel journal</p><h1>Every game is a new discovery.</h1><p class="muted">Saved on this browser and device. Clearing site data removes these results.</p></div></div>'+(history.length?'<div class="historylist">'+history.map(r=>'<article class="historycard"><div class="historyhead"><div><h2>'+esc(title(r))+' · '+esc(r.region)+'</h2><p class="muted">'+esc(new Date(r.created).toLocaleString())+' · '+r.correct+'/'+r.total+' '+(r.mode==="memory"?'pairs · '+r.moves+' turns':'correct')+' · '+r.seconds+' seconds</p></div><span class="scorepill">'+resultPoints(r)+' points</span></div><div class="actions"><button class="secondary" data-report="'+esc(r.id)+'">View answers</button><button class="secondary" data-download="'+esc(r.id)+'">Download report</button></div></article>').join('')+'</div>':'<div class="empty"><h2>Your passport is waiting.</h2><p class="muted">Finish a game to see your scores and answer reports.</p><button class="primary" data-tab="play">Choose a game</button></div>');
+ app.innerHTML='<div class="intro"><div><p class="eyebrow">Your travel journal</p><h1>Every game is a new discovery.</h1><p class="muted">Signed-in games sync to your verified account. Guest games stay on this device.</p></div></div>'+(history.length?'<div class="historylist">'+history.map(r=>'<article class="historycard"><div class="historyhead"><div><h2>'+esc(title(r))+' · '+esc(r.region)+'</h2><p class="muted">'+esc(new Date(r.created).toLocaleString())+' · '+r.correct+'/'+r.total+' '+(r.mode==="memory"?'pairs · '+r.moves+' turns':'correct')+' · '+r.seconds+' seconds</p></div><span class="scorepill">'+resultPoints(r)+' points</span></div><div class="actions"><button class="secondary" data-report="'+esc(r.id)+'">View answers</button><button class="secondary" data-download="'+esc(r.id)+'">Download report</button></div></article>').join('')+'</div>':'<div class="empty"><h2>Your passport is waiting.</h2><p class="muted">Finish a game to see your scores and answer reports.</p><button class="primary" data-tab="play">Choose a game</button></div>');
 }
 document.addEventListener("click",e=>{
  const b=e.target.closest("button");if(!b||b.disabled)return;
@@ -90,4 +96,9 @@ document.addEventListener("change",e=>{if(["region","scope","count"].includes(e.
 document.addEventListener("input",e=>{if(e.target.id==="search")updateLibrary()});
 document.addEventListener("visibilitychange",tick);
 window.addEventListener("beforeunload",e=>{if(game||(result&&!saved)){e.preventDefault();e.returnValue=""}});
+document.addEventListener("flag-account-change",event=>{
+ const owner=event.detail.owner;
+ if(owner!==activeOwner){if(timer)clearInterval(timer);timer=null;game=null;result=null;saved=false;activeOwner=owner;history=[];if(modal.open)modal.close()}
+ void loadHistory().then(render);
+});
 render();void loadHistory().then(render);

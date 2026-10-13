@@ -21,14 +21,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Test, lint, and build APK
         run: bash ./gradlew testDebugUnitTest lintDebug assembleDebug --stacktrace
-      - name: Verify permission-free APK and signature
+      - name: Verify APK permissions and signature
         run: |
           APK=app/build/outputs/apk/debug/app-debug.apk
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump permissions "$APK" | tee apk-permissions.txt
-          if grep -q "uses-permission:" apk-permissions.txt; then
-            echo "Unexpected APK permissions"
-            exit 1
-          fi
+          python3 tools/check-apk-permissions.py apk-permissions.txt
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs "$APK"
           sha256sum "$APK" > app/build/outputs/apk/debug/app-debug.apk.sha256
       - uses: actions/upload-artifact@v4

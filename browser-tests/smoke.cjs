@@ -1,9 +1,9 @@
 const fs=require("node:fs"),vm=require("node:vm"),assert=require("node:assert/strict");
 const data=fs.readFileSync("browser/data.js","utf8"),engine=fs.readFileSync("browser/engine.js","utf8"),source=fs.readFileSync("browser/app.js","utf8");
-for(const script of [data,engine,source])new vm.Script(script);
+for(const script of [data,engine,source,fs.readFileSync("browser/account-store.js","utf8"),fs.readFileSync("browser/account.js","utf8")])new vm.Script(script);
 const elements=new Map();
 const element=selector=>{if(!elements.has(selector))elements.set(selector,{innerHTML:"",textContent:"",value:"",dataset:{},classList:{toggle(){}},setAttribute(){},showModal(){},close(){}});return elements.get(selector)};
-const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){}},indexedDB:{open(){throw Error("Storage disabled for smoke test")}},crypto:require("node:crypto").webcrypto,console,setTimeout,setInterval:()=>1,clearInterval(){},Blob,URL});
+const context=vm.createContext({document:{querySelector:element,querySelectorAll:()=>[],addEventListener(){}},window:{addEventListener(){},FlagAccount:{owner:()=>"guest",setBusy(){},sync(){}}},FlagStore:{list:async()=>[],save:async()=>{}},indexedDB:{open(){throw Error("Storage disabled for smoke test")}},crypto:require("node:crypto").webcrypto,console,setTimeout,setInterval:()=>1,clearInterval(){},Blob,URL});
 const run=s=>vm.runInContext(s,context);
 run(data+"\n"+engine+"\n"+source);
 assert.match(element("#app").innerHTML,/Start Flag Finder/);

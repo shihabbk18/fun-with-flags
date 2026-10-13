@@ -1,0 +1,20 @@
+{
+  "scripts": {
+    "test": "node --test test/local.test.mjs",
+    "test:rules": "firebase emulators:exec --project demo-fun-with-flags --only firestore \"node --test test/rules.test.mjs\"",
+    "build": "node build.mjs"
+  },
+  "private": true,
+  "dependencies": {
+    "firebase": "13.0.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "@firebase/rules-unit-testing": "6.0.0",
+    "fake-indexeddb": "6.2.5",
+    "firebase-tools": "15.33.0"
+  },
+  "version": "1.0.0",
+  "type": "module",
+  "name": "fun-with-flags-cloud"
+}
