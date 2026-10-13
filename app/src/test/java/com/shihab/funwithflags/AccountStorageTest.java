@@ -24,4 +24,15 @@ public class AccountStorageTest {
   CloudAccount account=new CloudAccount(RuntimeEnvironment.getApplication(),db,()->{});
   assertFalse(account.configured());assertEquals("guest",account.owner());account.close();
  }
+ @Test public void upgradingVersionTwoPreservesGuestReportsAndScores(){
+  android.database.sqlite.SQLiteDatabase old=RuntimeEnvironment.getApplication().openOrCreateDatabase("flags.db",0,null);
+  old.execSQL("CREATE TABLE countries(code TEXT PRIMARY KEY,name TEXT NOT NULL,capital TEXT NOT NULL,continent TEXT NOT NULL,standard INTEGER NOT NULL DEFAULT 1,capital_quiz INTEGER NOT NULL DEFAULT 1)");
+  old.execSQL("CREATE TABLE results(id TEXT PRIMARY KEY,completed INTEGER NOT NULL,region TEXT NOT NULL,correct INTEGER NOT NULL,total INTEGER NOT NULL,seconds INTEGER NOT NULL,report TEXT NOT NULL)");
+  old.execSQL("INSERT INTO results VALUES(?,?,?,?,?,?,?)",new Object[]{"12345678-1234-1234-1234-123456789abc",1000L,"Capital Quest · World",3,5,20,"Original answer report"});
+  old.setVersion(2);old.close();
+  assertEquals(1,db.history().size());assertEquals("Original answer report",db.history().get(0)[5]);
+  Map<String,Object> row=db.pending("guest").get(0);
+  assertEquals("capital",row.get("mode"));assertEquals("World",row.get("region"));assertEquals(30L,row.get("points"));
+  db.setOwner("alice");assertEquals(0,db.history().size());
+ }
 }
