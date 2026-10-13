@@ -32,7 +32,7 @@ public class FlagDatabase extends SQLiteOpenHelper {
  public List<Country> countries(String region,String search){return countries(region,search,false);}
  public List<Country> countries(String region,String search,boolean onlyCountries){
   List<Country> out=new ArrayList<>();
-  try(Cursor c=getReadableDatabase().rawQuery("SELECT code,name,capital,continent,standard,capital_quiz FROM countries WHERE (?='World' OR continent=?) AND (?=0 OR standard=1) AND (name LIKE ? ESCAPE '\\' OR capital LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\') ORDER BY name",new String[]{region,region,onlyCountries?"1":"0","%"+escape(search)+"%","%"+escape(search)+"%","%"+escape(search)+"%"})){
+  try(Cursor c=getReadableDatabase().rawQuery("SELECT code,name,capital,continent,standard,capital_quiz FROM countries WHERE (?='World' OR continent=?) AND (?='0' OR standard=1) AND (name LIKE ? ESCAPE '\\' OR capital LIKE ? ESCAPE '\\' OR code LIKE ? ESCAPE '\\') ORDER BY name",new String[]{region,region,onlyCountries?"1":"0","%"+escape(search)+"%","%"+escape(search)+"%","%"+escape(search)+"%"})){
    while(c.moveToNext())out.add(new Country(c.getString(0),c.getString(1),c.getString(2),c.getString(3),c.getInt(4)==1,c.getInt(5)==1));
   }return out;
  }
