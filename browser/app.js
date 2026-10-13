@@ -1,103 +1,93 @@
 "use strict";
 const app=document.querySelector("#app"),modal=document.querySelector("#modal");
-let tab="play",region="World",count=10,game=null,result=null,history=[],db=null,storageError="",saved=false,saving=false;
-const byCode=code=>countries.find(c=>c.code===code);
+let tab="play",region="World",scope="all",mode="flag",count=10,game=null,result=null,history=[],db=null,storageError="",saved=false,saving=false,timer=null,lastFeedback="";
 const esc=value=>String(value).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const flag=(code,label)=>'<img src="./flags/'+code.toLowerCase()+'.svg" alt="'+esc(label)+'">';
-function shuffle(input){const a=[...input];for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-function picker(label,id,options,value){return '<div class="field"><label for="'+id+'">'+label+'</label><select id="'+id+'">'+options.map(v=>'<option '+(String(v)===String(value)?'selected':'')+' value="'+esc(v)+'">'+esc(v)+(id==='count'?' questions':'')+'</option>').join('')+'</select></div>'}
+const flag=(code,label)=>'<img loading="lazy" src="./flags/'+code.toLowerCase()+'.svg" alt="'+esc(label)+'">';
+const title=r=>modes[r.mode||"flag"]?.title||"Flag Finder";
+function picker(label,id,options,value){return '<div class="field"><label for="'+id+'">'+label+'</label><select id="'+id+'">'+options.map(v=>{const key=typeof v==="object"?v.id:v,label=typeof v==="object"?v.label:v;return '<option '+(String(key)===String(value)?'selected':'')+' value="'+esc(key)+'">'+esc(label)+(id==="count"?' questions':'')+'</option>'}).join('')+'</select></div>'}
 function notice(){document.querySelector("#storage-notice").innerHTML=storageError?'<div class="notice">'+esc(storageError)+'</div>':""}
-async function openDatabase(){
- return new Promise((resolve,reject)=>{
-  const request=indexedDB.open("fun-with-flags",1);
-  request.onupgradeneeded=()=>request.result.createObjectStore("results",{keyPath:"id"});
-  request.onsuccess=()=>resolve(request.result);
-  request.onerror=()=>reject(request.error);
-  request.onblocked=()=>reject(new Error("Close other tabs to enable saved results."));
- });
-}
-async function loadHistory(){
- try{db=db||await openDatabase();history=await new Promise((resolve,reject)=>{const tx=db.transaction("results","readonly");const r=tx.objectStore("results").getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});history.sort((a,b)=>b.created-a.created);storageError=""}
- catch{storageError="This browser is blocking saved history. You can still play and download your result report."}
- notice();
-}
+function openDatabase(){return new Promise((resolve,reject)=>{const r=indexedDB.open("fun-with-flags",1);r.onupgradeneeded=()=>r.result.createObjectStore("results",{keyPath:"id"});r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);r.onblocked=()=>reject(Error("Storage blocked"))})}
+async function loadHistory(){try{db=db||await openDatabase();history=await new Promise((resolve,reject)=>{const t=db.transaction("results","readonly"),r=t.objectStore("results").getAll();r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)});history.sort((a,b)=>b.created-a.created);storageError=""}catch{storageError="Saved history is unavailable in this browser. You can still play and download a report."}notice()}
 async function saveResult(){
- if(!result||saving)return;
- saving=true;render();
- try{
-  db=db||await openDatabase();
-  await new Promise((resolve,reject)=>{const tx=db.transaction("results","readwrite");tx.objectStore("results").put(result);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error)});
-  saved=true;await loadHistory();
- }catch{storageError="Your result could not be saved. Retry saving or download your report before leaving.";notice()}
+ if(!result||saving)return;saving=true;render();
+ try{db=db||await openDatabase();await new Promise((resolve,reject)=>{const t=db.transaction("results","readwrite");t.objectStore("results").put(result);t.oncomplete=()=>resolve();t.onerror=()=>reject(t.error);t.onabort=()=>reject(t.error)});saved=true;await loadHistory()}
+ catch{storageError="Could not save your result. Retry saving or download your report.";notice()}
  finally{saving=false;render()}
 }
-function start(){
- const pool=countries.filter(c=>region==="World"||c.continent===region);
- const questions=shuffle(pool).slice(0,count);
- game={id:crypto.randomUUID(),region,started:Date.now(),questions,choices:questions.map(c=>shuffle([c,...shuffle(pool.filter(o=>o.code!==c.code)).slice(0,3)])),answers:[],index:0};
- result=null;saved=false;tab="play";render();
+function start(){try{game=createGame(mode,region,scope,count);result=null;saved=false;lastFeedback="";tab="play";if(timer)clearInterval(timer);if(mode==="sprint")timer=setInterval(tick,250);render()}catch(e){showModal("Choose another route",'<p class="muted">'+esc(e.message)+'</p>','<button class="primary" data-action="close">OK</button>')}}
+function tick(){if(!game||game.mode!=="sprint")return;if(Date.now()>=game.deadline){finish();return}const clock=document.querySelector("#clock");if(clock)clock.textContent=Math.max(0,Math.ceil((game.deadline-Date.now())/1000))+"s"}
+function answer(value){
+ if(!game)return;
+ if(game.deadline&&Date.now()>=game.deadline){finish();return}
+ if(!recordAnswer(game,value))return;
+ if(game.mode==="sprint"){const a=game.answers.at(-1);lastFeedback=(a.correct?"✓ Correct: ":"✕ It was ")+byCode(a.code).name;next()}else render();
 }
-function answer(code){
- if(!game||game.answers.length>game.index||!game.choices[game.index].some(c=>c.code===code))return;
- game.answers.push({code:game.questions[game.index].code,picked:code});render();
-}
-function next(){
- if(!game||game.answers.length<=game.index)return;
- if(game.index+1<game.questions.length){game.index++;render();return}
- result={id:game.id,created:Date.now(),region:game.region,correct:game.answers.filter(a=>a.code===a.picked).length,total:game.questions.length,seconds:Math.round((Date.now()-game.started)/1000),answers:game.answers};
- game=null;void saveResult();
-}
-function report(r){return "Fun with Flags\n"+r.region+" · "+r.correct*10+" points · "+r.correct+"/"+r.total+" correct\n\n"+r.answers.map((a,i)=>(i+1)+". "+byCode(a.code).name+" — your answer: "+byCode(a.picked).name+(a.code===a.picked?" (correct)":" (incorrect)")).join("\n")}
+function next(){if(!game||game.answers.length<=game.index)return;if(game.index+1<game.questions.length){game.index++;render()}else finish()}
+function finish(){if(!game)return;if(modal.open)modal.close();if(timer)clearInterval(timer);timer=null;result=finishGame(game);game=null;void saveResult()}
+function playCard(index){if(!game||!revealCard(game,index))return;if(game.matched.length===game.questions.length)finish();else render()}
+function report(r){return "Fun with Flags — "+title(r)+"\n"+r.region+" · "+resultPoints(r)+" points · "+r.correct+"/"+r.total+" correct"+(r.moves?" · "+r.moves+" turns":"")+"\n\n"+r.answers.map((a,i)=>(i+1)+". "+byCode(a.code).name+" — answer: "+answerLabel(r,a)+"; correct: "+answerExpected(r,a)+(answerCorrect(a)?" ✓":" ✕")).join("\n")}
 function download(r){const url=URL.createObjectURL(new Blob([report(r)],{type:"text/plain;charset=utf-8"}));const a=document.createElement("a");a.href=url;a.download="fun-with-flags-report.txt";a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)}
-function review(r){return '<div class="review">'+r.answers.map((a,i)=>'<div class="reviewrow">'+flag(a.code,byCode(a.code).name+' flag')+'<div><h3>'+(i+1)+'. '+esc(byCode(a.code).name)+'</h3><p class="muted">'+esc(a.code===a.picked?byCode(a.code).capital:'You chose '+byCode(a.picked).name+' · Capital: '+byCode(a.code).capital)+'</p></div><span class="right" aria-label="'+(a.code===a.picked?'Correct':'Incorrect')+'">'+(a.code===a.picked?'✓':'✕')+'</span></div>').join('')+'</div>'}
-function showModal(title,content,actions){modal.innerHTML='<h2 id="modal-title">'+title+'</h2>'+content+'<div class="actions">'+actions+'</div>';modal.showModal()}
+function review(r){return '<div class="review">'+r.answers.map((a,i)=>'<div class="reviewrow">'+flag(a.code,byCode(a.code).name+' flag')+'<div><h3>'+(i+1)+'. '+esc(byCode(a.code).name)+'</h3><p class="muted">'+esc(answerCorrect(a)?answerExpected(r,a):'You chose '+answerLabel(r,a)+' · Correct: '+answerExpected(r,a))+'</p></div><span class="right" aria-label="'+(answerCorrect(a)?'Correct':'Incorrect')+'">'+(answerCorrect(a)?'✓':'✕')+'</span></div>').join('')+'</div>'}
+function showModal(name,content,actions){modal.innerHTML='<h2 id="modal-title">'+name+'</h2>'+content+'<div class="actions">'+actions+'</div>';modal.showModal()}
+function resetGame(){if(timer)clearInterval(timer);timer=null;game=null;result=null;modal.close();render()}
 function render(){
  document.querySelectorAll("[data-tab]").forEach(b=>{b.classList.toggle("active",b.dataset.tab===tab);b.setAttribute("aria-current",b.dataset.tab===tab?"page":"false");b.disabled=!!game&&b.dataset.tab!=="play"});
- if(tab==="learn"){renderLibrary();return}
- if(tab==="history"){renderHistory();return}
- if(game){renderQuestion();return}
- if(result){renderResult();return}
- const correct=history.reduce((s,r)=>s+r.correct,0),total=history.reduce((s,r)=>s+r.total,0);
- app.innerHTML='<div class="intro"><div><p class="eyebrow">Your next expedition</p><h1>How well do you know the world?</h1><p class="muted">Pick your route, then put your flag knowledge to the test.</p></div></div><div class="grid"><section class="playcard"><h2>A world of discovery</h2><div class="previewflag">'+['BD','JP','BR'].map(c=>'<span>'+flag(c,byCode(c).name+' flag')+'</span>').join('')+'</div><div class="controls">'+picker('Choose a region','region',regions,region)+picker('Pick your pace','count',[5,10,20],count)+'</div><button class="primary wide" data-action="start">Start quiz</button><p class="note">10 points per correct answer. No time limit. Smaller regions use each available flag once.</p></section><aside class="passport"><p class="eyebrow">Your explorer passport</p><p class="stamp">One flag.<br>One new discovery.</p><div class="stats"><div><strong>'+history.length+'</strong><span>completed quizzes</span></div><div><strong>'+(total?Math.round(100*correct/total)+'%':'—')+'</strong><span>lifetime accuracy</span></div></div><p class="muted" style="margin-top:18px">48 flags · 6 continents · Endless curiosity</p></aside></div>';
+ if(tab==="learn"){renderLibrary();return}if(tab==="history"){renderHistory();return}
+ if(game){game.mode==="memory"?renderMemory():renderQuestion();return}if(result){renderResult();return}
+ const available=poolFor(region,scope,mode).length;
+ app.innerHTML='<div class="intro"><div><p class="eyebrow">The whole world is in play</p><h1>Pick your next adventure.</h1><p class="muted">250 countries, territories and other places. Five ways to explore them.</p></div><span class="scorepill">'+history.length+' games completed</span></div>'+
+ '<div class="game-modes" role="group" aria-label="Choose a game">'+Object.entries(modes).map(([id,m])=>'<button class="mode-card '+(id===mode?'selected':'')+'" data-mode="'+id+'" aria-pressed="'+(id===mode)+'"><span class="mode-icon" aria-hidden="true">'+m.icon+'</span><h2>'+m.title+'</h2><p>'+m.description+'</p></button>').join('')+'</div>'+
+ '<section class="playcard game-setup"><div><p class="eyebrow">Make it your own</p><h2>'+modes[mode].title+'</h2><p class="muted">'+(mode==="sprint"?'One minute. Ten points per correct flag. The clock continues if you switch tabs.':mode==="memory"?'Match up to six flag-and-name pairs. Each pair earns ten points; fewer turns is better.':'Ten points per correct answer. Take your time.')+'</p></div><div class="controls">'+picker('Explore','scope',[{id:"all",label:"All 250 places"},{id:"countries",label:"195 countries only"}],scope)+picker('Region','region',regions,region)+(mode==="sprint"||mode==="memory"?'':picker('Length','count',[5,10,20,50],count))+'</div><button class="primary wide" data-action="start" '+(!available?'disabled':'')+'>Start '+modes[mode].title+'</button><p class="note">'+(available?available+' available entries. Questions do not repeat within a round.':'No eligible entries here. Choose another region or scope.')+'</p></section>'+
+ '<p class="note">“195 countries” means the 193 UN members plus Palestine and Vatican City. The extended library includes territories and other listed places. Capitals and continent assignments follow the bundled reference dataset.</p>';
 }
 function renderQuestion(){
- const q=game.questions[game.index],picked=game.answers[game.index]?.picked;
- app.innerHTML='<section class="quiz"><div class="quiztop"><span class="eyebrow">'+game.region+' / Question '+(game.index+1)+' of '+game.questions.length+'</span><span class="scorepill">'+game.answers.filter(a=>a.code===a.picked).length*10+' points</span></div><progress value="'+game.answers.length+'" max="'+game.questions.length+'" aria-label="Quiz progress"></progress><h1 style="margin-top:28px">Whose flag is this?</h1><div class="flagstage">'+flag(q.code,'Flag to identify')+'</div><div class="answers">'+game.choices[game.index].map((c,i)=>'<button class="answer '+(picked?(c.code===q.code?'correct':c.code===picked?'wrong':''):'')+'" data-answer="'+c.code+'" '+(picked?'disabled':'')+'><span style="color:#61736a;margin-right:14px">'+String.fromCharCode(65+i)+'</span>'+esc(c.name)+(picked&&c.code===q.code?' ✓':picked===c.code?' ✕':'')+'</button>').join('')+'</div>'+(picked?'<div class="feedback" aria-live="polite"><div><h3>'+(picked===q.code?'That’s right! +10 points':'A new flag for your memory.')+'</h3><p class="muted">'+esc(q.name+' · '+q.capital+' · '+q.continent)+'</p></div><button class="primary" data-action="next">'+(game.index+1===game.questions.length?'See results':'Next flag')+'</button></div>':'')+'<button class="secondary" style="margin-top:24px" data-action="leave">Leave quiz</button></section>';
+ const q=game.questions[game.index],a=game.answers[game.index],key=expected(game,game.index),isSprint=game.mode==="sprint",score=game.answers.filter(a=>a.correct).length*10;
+ app.innerHTML='<section class="quiz"><div class="quiztop"><span class="eyebrow">'+title(game)+' / '+game.region+' / Question '+(game.index+1)+(isSprint?'':' of '+game.questions.length)+'</span><span class="scorepill">'+score+' points'+(isSprint?' · <span id="clock">'+Math.max(0,Math.ceil((game.deadline-Date.now())/1000))+'s</span>':'')+'</span></div><progress value="'+game.answers.length+'" max="'+game.questions.length+'" aria-label="Quiz progress"></progress><h1 style="margin-top:28px">'+modes[game.mode].question+'</h1>'+
+ (game.mode==="capital"||game.mode==="continent"?'<h2 class="question-country">'+esc(q.name)+'</h2>':'')+'<div class="flagstage">'+flag(q.code,game.mode==="flag"||isSprint?'Flag to identify':q.name+' flag')+'</div>'+
+ (isSprint?'<p class="sprint-feedback" role="status">'+esc(lastFeedback||'Ready, set, explore.')+'</p>':'')+
+ '<div class="answers">'+game.choices[game.index].map((o,i)=>'<button class="answer '+(a?(o.id===key?'correct':o.id===a.picked?'wrong':''):'')+'" data-answer="'+esc(o.id)+'" '+(a?'disabled':'')+'><span style="color:#61736a;margin-right:14px">'+String.fromCharCode(65+i)+'</span>'+esc(o.label)+(a&&o.id===key?' ✓':a?.picked===o.id?' ✕':'')+'</button>').join('')+'</div>'+
+ (a?'<div class="feedback" aria-live="polite"><div><h3>'+(a.correct?'That’s right! +10 points':'A new fact for your memory.')+'</h3><p class="muted">'+esc(q.name+' · '+q.capital+' · '+q.continent)+'</p></div><button class="primary" data-action="next">'+(game.index+1===game.questions.length?'See results':'Next question')+'</button></div>':'')+'<button class="secondary" style="margin-top:24px" data-action="leave">Leave game</button></section>';
+}
+function renderMemory(){
+ app.innerHTML='<section class="quiz"><div class="quiztop"><span class="eyebrow">Flag Match / '+game.region+'</span><span class="scorepill">'+game.matched.length+'/'+game.questions.length+' pairs · '+game.moves+' turns</span></div><h1>Every flag has a partner.</h1><p class="muted">Turn over two cards. Match each flag to its country name.</p><div class="memory-board">'+game.cards.map((c,i)=>{const matched=game.matched.includes(c.code),open=matched||game.open.includes(i);return '<button class="memory-card '+(matched?'matched':open?'revealed':'')+'" data-card="'+i+'" '+(matched||open||game.open.length===2?'disabled':'')+' aria-label="'+(open?esc(c.kind==='flag'?byCode(c.code).name+' flag':byCode(c.code).name):'Hidden card '+(i+1))+'">'+(open?(c.kind==="flag"?flag(c.code,byCode(c.code).name+' flag'):esc(byCode(c.code).name)):'<span aria-hidden="true">⚑</span>')+'</button>'}).join('')+'</div><div class="feedback" aria-live="polite">'+(game.open.length===2?'<p>Not a match. Remember these two!</p><button class="primary" data-action="hide-cards">Try another pair</button>':'<p>Find all '+game.questions.length+' pairs. Matched pairs stay visible.</p>')+'</div><button class="secondary" style="margin-top:24px" data-action="leave">Leave game</button></section>';
 }
 function renderResult(){
- app.innerHTML='<section class="quiz"><p class="eyebrow">Your expedition report</p><h1>'+(result.correct/result.total>=.8?'World-class curiosity!':'Another journey complete.')+'</h1><div class="passport" style="min-height:230px;margin-top:24px"><div class="resultscore">'+result.correct*10+' points</div><h2>'+result.correct+' / '+result.total+' correct · '+Math.round(100*result.correct/result.total)+'% accuracy</h2><p class="muted">'+esc(result.region)+' · '+result.seconds+' seconds · '+(saving?'Saving…':saved?'Saved in this browser':'Not saved yet')+'</p></div><div class="actions"><button class="primary" data-action="again" '+(saving?'disabled':'')+'>Play again</button><button class="secondary" data-action="download">Download report</button>'+(!saved?'<button class="secondary" data-action="retry" '+(saving?'disabled':'')+'>Retry save</button>':'')+'</div><h2 style="margin-top:32px">A look back</h2>'+review(result)+'</section>';
+ const accuracy=result.total?Math.round(100*result.correct/result.total):0;
+ app.innerHTML='<section class="quiz"><p class="eyebrow">'+title(result)+' report</p><h1>'+(result.mode==="memory"?'A perfect match.':accuracy>=80?'World-class curiosity!':'Another journey complete.')+'</h1><div class="passport" style="min-height:230px;margin-top:24px"><div class="resultscore">'+resultPoints(result)+' points</div><h2>'+result.correct+' / '+result.total+' '+(result.mode==="memory"?'pairs · '+result.moves+' turns':'correct · '+accuracy+'% accuracy')+'</h2><p class="muted">'+esc(result.region)+' · '+result.seconds+' seconds · '+(saving?'Saving…':saved?'Saved in this browser':'Not saved yet')+'</p></div>'+
+ (!result.total?'<p class="note">No answers this time. Try again when you’re ready.</p>':'')+
+ '<div class="actions"><button class="primary" data-action="again" '+(saving?'disabled':'')+'>Choose another game</button><button class="secondary" data-action="download">Download report</button>'+(!saved?'<button class="secondary" data-action="retry" '+(saving?'disabled':'')+'>Retry save</button>':'')+'</div><h2 style="margin-top:32px">A look back</h2>'+review(result)+'</section>';
 }
 function renderLibrary(){
- app.innerHTML='<div class="intro"><div><p class="eyebrow">Meet the world</p><h1>The flag library</h1><p class="muted">Explore flags and capitals before your next quiz.</p></div><span id="found" class="scorepill"></span></div><div class="toolbar"><div class="field"><label for="search">Find a country</label><input id="search" class="search" placeholder="Search country or capital…"></div>'+picker('Filter by region','region',regions,region)+'</div><div id="country-list" class="library"></div>';
+ app.innerHTML='<div class="intro"><div><p class="eyebrow">Meet the whole world</p><h1>The flag atlas</h1><p class="muted">Countries, capitals and territories, all in one place.</p></div><span id="found" class="scorepill"></span></div><div class="toolbar atlas-toolbar"><div class="field"><label for="search">Find a country or capital</label><input id="search" class="search" placeholder="Search a name, capital, or country code…"></div>'+picker('Scope','scope',[{id:"all",label:"All 250 places"},{id:"countries",label:"195 countries only"}],scope)+picker('Region','region',regions,region)+'</div><p class="note" style="margin-bottom:20px">Capital / administrative centre shown. Some places have multiple capitals, no permanent capital, or disputed status. Groupings follow the reference dataset.</p><div id="country-list" class="library"></div>';
  updateLibrary();
 }
 function updateLibrary(){
- const term=document.querySelector("#search").value.toLowerCase();
- const list=countries.filter(c=>(region==="World"||c.continent===region)&&(c.name+' '+c.capital).toLowerCase().includes(term));
- document.querySelector("#found").textContent=list.length+' countries';
- document.querySelector("#country-list").innerHTML=list.length?list.map(c=>'<article class="countrycard">'+flag(c.code,c.name+' flag')+'<h3>'+esc(c.name)+'</h3><p>'+esc(c.capital)+'</p><p>'+c.continent+'</p></article>').join(''):'<p class="muted">No countries found. Try another search or region.</p>';
+ const term=document.querySelector("#search").value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+ const list=poolFor(region,scope,"flag").filter(c=>(c.name+' '+c.capital+' '+c.code+' '+c.aliases).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").includes(term));
+ document.querySelector("#found").textContent=list.length+' entries';
+ document.querySelector("#country-list").innerHTML=list.length?list.map(c=>'<article class="countrycard">'+flag(c.code,c.name+' flag')+'<h3>'+esc(c.name)+'</h3><p>'+esc(c.capital)+'</p><p>'+c.continent+' · '+(c.standard?'Country':'Territory / other entry')+'</p></article>').join(''):'<p class="muted">No entries found. Try another search or region.</p>';
 }
 function renderHistory(){
- app.innerHTML='<div class="intro"><div><p class="eyebrow">Your travel journal</p><h1>Every quiz is a new discovery.</h1><p class="muted">Saved on this browser and device. Clearing site data removes these results.</p></div></div>'+(history.length?'<div class="historylist">'+history.map(r=>'<article class="historycard"><div class="historyhead"><div><h2>'+esc(r.region)+' expedition</h2><p class="muted">'+esc(new Date(r.created).toLocaleString())+' · '+r.correct+'/'+r.total+' correct · '+r.seconds+' seconds</p></div><span class="scorepill">'+r.correct*10+' points</span></div><div class="actions"><button class="secondary" data-report="'+esc(r.id)+'">View answers</button><button class="secondary" data-download="'+esc(r.id)+'">Download report</button></div></article>').join('')+'</div>':'<div class="empty"><h2>Your passport is waiting.</h2><p class="muted">Finish a quiz to see your scores and answer reports.</p><button class="primary" data-tab="play">Play a quiz</button></div>');
+ app.innerHTML='<div class="intro"><div><p class="eyebrow">Your travel journal</p><h1>Every game is a new discovery.</h1><p class="muted">Saved on this browser and device. Clearing site data removes these results.</p></div></div>'+(history.length?'<div class="historylist">'+history.map(r=>'<article class="historycard"><div class="historyhead"><div><h2>'+esc(title(r))+' · '+esc(r.region)+'</h2><p class="muted">'+esc(new Date(r.created).toLocaleString())+' · '+r.correct+'/'+r.total+' '+(r.mode==="memory"?'pairs · '+r.moves+' turns':'correct')+' · '+r.seconds+' seconds</p></div><span class="scorepill">'+resultPoints(r)+' points</span></div><div class="actions"><button class="secondary" data-report="'+esc(r.id)+'">View answers</button><button class="secondary" data-download="'+esc(r.id)+'">Download report</button></div></article>').join('')+'</div>':'<div class="empty"><h2>Your passport is waiting.</h2><p class="muted">Finish a game to see your scores and answer reports.</p><button class="primary" data-tab="play">Choose a game</button></div>');
 }
 document.addEventListener("click",e=>{
  const b=e.target.closest("button");if(!b||b.disabled)return;
  if(b.dataset.tab){if(game)return;tab=b.dataset.tab;render();return}
+ if(b.dataset.mode){mode=b.dataset.mode;render();return}
  if(b.dataset.answer){answer(b.dataset.answer);return}
- if(b.dataset.report){const r=history.find(r=>r.id===b.dataset.report);if(r)showModal('Quiz answer report',review(r),'<button class="primary" data-action="close">Done</button>');return}
+ if(b.dataset.card!==undefined){playCard(Number(b.dataset.card));return}
+ if(b.dataset.report){const r=history.find(r=>r.id===b.dataset.report);if(r)showModal(esc(title(r)),review(r),'<button class="primary" data-action="close">Done</button>');return}
  if(b.dataset.download){const r=history.find(r=>r.id===b.dataset.download);if(r)download(r);return}
  switch(b.dataset.action){
-  case "start":start();break;
-  case "next":next();break;
-  case "download":download(result);break;
-  case "retry":void saveResult();break;
-  case "again":if(!saved){showModal('Start another quiz?','<p class="muted">This result is not saved. Download it first if you want to keep it.</p>','<button class="secondary" data-action="close">Go back</button><button class="primary" data-action="discard">Start again</button>')}else{result=null;render()}break;
-  case "leave":showModal('Leave this quiz?','<p class="muted">Your unfinished answers won’t be saved.</p>','<button class="secondary" data-action="close">Keep playing</button><button class="primary" data-action="discard">Leave quiz</button>');break;
-  case "discard":game=null;result=null;modal.close();render();break;
-  case "close":modal.close();break;
+ case "start":start();break;case "next":next();break;case "download":download(result);break;case "retry":void saveResult();break;
+ case "hide-cards":if(game?.mode==="memory"){game.open=[];render()}break;
+ case "again":if(!saved)showModal('Leave this result?','<p class="muted">It is not saved. Download the report first if you want to keep it.</p>','<button class="secondary" data-action="close">Go back</button><button class="primary" data-action="discard">Choose another game</button>');else{result=null;render()}break;
+ case "leave":showModal('Leave this game?','<p class="muted">Unfinished progress won’t be saved. The sprint clock keeps running.</p>','<button class="secondary" data-action="close">Keep playing</button><button class="primary" data-action="discard">Leave game</button>');break;
+ case "discard":resetGame();break;case "close":modal.close();break;
  }
 });
-document.addEventListener("change",e=>{if(e.target.id==="region"){region=e.target.value;if(tab==="learn")updateLibrary()}if(e.target.id==="count")count=Number(e.target.value)});
+document.addEventListener("change",e=>{if(["region","scope","count"].includes(e.target.id)){if(e.target.id==="region")region=e.target.value;if(e.target.id==="scope")scope=e.target.value;if(e.target.id==="count")count=Number(e.target.value);if(tab==="learn")updateLibrary();else render()}});
 document.addEventListener("input",e=>{if(e.target.id==="search")updateLibrary()});
+document.addEventListener("visibilitychange",tick);
 window.addEventListener("beforeunload",e=>{if(game||(result&&!saved)){e.preventDefault();e.returnValue=""}});
 render();void loadHistory().then(render);
